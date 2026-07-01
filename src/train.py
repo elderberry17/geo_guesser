@@ -12,8 +12,6 @@ from src.model import build_model
 from src.utils import run_epoch
 
 # unlearn to predict sees (def)
-# strarify in the split (def)
-# augmentation (def, but check the progress)
 # try to train a model from scratch (cnn / vit)
 # different backbone
 
@@ -25,9 +23,13 @@ def get_transforms():
     train_tf = transforms.Compose([
         transforms.RandomResizedCrop(256, scale=(0.7, 1.0)),
         transforms.RandomHorizontalFlip(),
+        transforms.RandomPerspective(distortion_scale=0.2, p=0.3),
         transforms.ColorJitter(brightness=0.3, contrast=0.3, saturation=0.2, hue=0.05),
+        transforms.RandomGrayscale(p=0.05),
+        transforms.RandomApply([transforms.GaussianBlur(kernel_size=5, sigma=(0.1, 2.0))], p=0.2),
         transforms.ToTensor(),
         transforms.Normalize(IMAGENET_MEAN, IMAGENET_STD),
+        transforms.RandomErasing(p=0.2, scale=(0.02, 0.1), ratio=(0.3, 3.3)),
     ])
     val_tf = transforms.Compose([
         transforms.Resize(292),
@@ -71,9 +73,13 @@ def main(args):
     print(f"Lat  mean={lat_mean:.3f}  std={lat_std:.3f}")
     print(f"Lng  mean={lng_mean:.3f}  std={lng_std:.3f}")
 
-    val_df   = labels.sample(frac=args.val_frac, random_state=42)
+    val_df = labels.groupby("country", group_keys=False).apply(
+        lambda g: g.sample(frac=args.val_frac, random_state=42), include_groups=False
+    )
+    val_df = labels.loc[val_df.index]
     train_df = labels.drop(val_df.index)
     print(f"Train: {len(train_df)}  Val: {len(val_df)}")
+    print(f"Val country distribution:\n{val_df['country'].value_counts(normalize=True)}")
 
     norm = dict(lat_mean=lat_mean, lat_std=lat_std, lng_mean=lng_mean, lng_std=lng_std)
     train_tf, val_tf = get_transforms()
@@ -123,7 +129,7 @@ def main(args):
 
     print(f"\nBest val median: {best_median:.1f} km")
 
-    ckpt = torch.load(best_ckpt, map_location=device)
+    ckpt = torch.load(best_ckpt, map_location=device, weights_only=False)
     model.load_state_dict(ckpt["model_state"])
 
     preds = predict_holdout(model, data_root, val_tf, **norm,
