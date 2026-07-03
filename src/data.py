@@ -11,6 +11,19 @@ COUNTRIES = [
 COUNTRY_TO_IDX = {c: i for i, c in enumerate(COUNTRIES)}
 
 
+def stratified_split(labels, val_frac, random_state=42):
+    """Split `labels` into (train_df, val_df), sampling val_frac per country
+    so both splits keep the same country balance. Deterministic given
+    val_frac/random_state, so the same val set can be reconstructed later
+    (e.g. to score a checkpoint) without needing to persist it."""
+    val_df = labels.groupby("country", group_keys=False).apply(
+        lambda g: g.sample(frac=val_frac, random_state=random_state), include_groups=False
+    )
+    val_df = labels.loc[val_df.index]
+    train_df = labels.drop(val_df.index)
+    return train_df, val_df
+
+
 class GeoDataset(Dataset):
     def __init__(self, df, img_dir, transform, lat_mean, lat_std, lng_mean, lng_std):
         self.df = df.reset_index(drop=True)
