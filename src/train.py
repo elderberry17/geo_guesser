@@ -8,6 +8,7 @@ from torchvision import transforms
 from tqdm import tqdm
 
 from src.data import GeoDataset, HoldoutDataset, stratified_split
+from src.geo_prior import LandPrior
 from src.model import build_model
 from src.utils import run_epoch
 
@@ -76,6 +77,8 @@ def main(args):
     print(f"Train: {len(train_df)}  Val: {len(val_df)}")
     print(f"Val country distribution:\n{val_df['country'].value_counts(normalize=True)}")
 
+    land_prior = LandPrior.fit(train_df, percentile=args.sea_percentile).to(device)
+
     norm = dict(lat_mean=lat_mean, lat_std=lat_std, lng_mean=lng_mean, lng_std=lng_std)
     train_tf, val_tf = get_transforms()
 
@@ -103,9 +106,11 @@ def main(args):
 
     for epoch in tqdm(range(1, args.epochs + 1), total=args.epochs):
         tr_loss, tr_km = run_epoch(model, train_loader, optimizer, device,
-                                   aux_weight=args.aux_weight, train=True, **norm)
+                                   aux_weight=args.aux_weight, train=True,
+                                   land_prior=land_prior, sea_weight=args.sea_weight, **norm)
         vl_loss, vl_km = run_epoch(model, val_loader, optimizer, device,
-                                   aux_weight=args.aux_weight, train=False, **norm)
+                                   aux_weight=args.aux_weight, train=False,
+                                   land_prior=land_prior, sea_weight=args.sea_weight, **norm)
 
         print(f"Epoch {epoch:3d}/{args.epochs}  "
               f"train {tr_loss:.2f} / {tr_km:.1f} km  "
@@ -146,6 +151,10 @@ def parse_args():
     p.add_argument("--workers",     type=int,   default=1)
     p.add_argument("--aux_weight",  type=float, default=0.3,
                    help="Weight for country classification auxiliary loss")
+    p.add_argument("--sea_weight",  type=float, default=0.05,
+                   help="Weight for the land-plausibility penalty (discourages predicting water)")
+    p.add_argument("--sea_percentile", type=float, default=1.0,
+                   help="Percentile of training log-likelihood used as the plausibility threshold")
     return p.parse_args()
 
 

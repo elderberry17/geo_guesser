@@ -28,11 +28,12 @@ def haversine_loss(pred, target, lat_mean, lat_std, lng_mean, lng_std, R=6371.00
 
 def run_epoch(model, loader, optimizer, device,
               lat_mean, lat_std, lng_mean, lng_std,
-              aux_weight=0.3, train=True):
+              aux_weight=0.3, train=True, land_prior=None, sea_weight=0.0):
     model.train(train)
     total_loss = 0.0
     pred_lats, pred_lngs = [], []
     true_lats, true_lngs = [], []
+    implausible = 0.0
 
     norm = dict(lat_mean=lat_mean, lat_std=lat_std, lng_mean=lng_mean, lng_std=lng_std)
 
@@ -45,6 +46,16 @@ def run_epoch(model, loader, optimizer, device,
 
             loss = (haversine_loss(coord_pred, coords, **norm)
                     + aux_weight * F.cross_entropy(country_logits, countries))
+
+            pred_deg = torch.stack([
+                coord_pred[:, 0] * lat_std + lat_mean,
+                coord_pred[:, 1] * lng_std + lng_mean,
+            ], dim=1)
+            if land_prior is not None:
+                if sea_weight > 0:
+                    loss = loss + sea_weight * land_prior.penalty(pred_deg)
+                with torch.no_grad():
+                    implausible += land_prior.implausible_rate(pred_deg).item() * len(imgs)
 
             if train:
                 optimizer.zero_grad()
@@ -66,4 +77,6 @@ def run_epoch(model, loader, optimizer, device,
         np.array(true_lats), np.array(true_lngs),
         np.array(pred_lats), np.array(pred_lngs),
     )
+    if land_prior is not None:
+        print(f"  implausible (sea) rate: {implausible / len(loader.dataset):.1%}")
     return avg_loss, float(np.median(dists))
