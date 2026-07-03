@@ -7,13 +7,12 @@ from torch.utils.data import DataLoader
 from torchvision import transforms
 from tqdm import tqdm
 
-from src.data import GeoDataset, HoldoutDataset
+from src.data import GeoDataset, HoldoutDataset, stratified_split
 from src.model import build_model
 from src.utils import run_epoch
 
 # unlearn to predict sees (def)
-# try to train a model from scratch (cnn / vit)
-# different backbone
+# different backbone - later
 
 IMAGENET_MEAN = [0.485, 0.456, 0.406]
 IMAGENET_STD  = [0.229, 0.224, 0.225]
@@ -73,11 +72,7 @@ def main(args):
     print(f"Lat  mean={lat_mean:.3f}  std={lat_std:.3f}")
     print(f"Lng  mean={lng_mean:.3f}  std={lng_std:.3f}")
 
-    val_df = labels.groupby("country", group_keys=False).apply(
-        lambda g: g.sample(frac=args.val_frac, random_state=42), include_groups=False
-    )
-    val_df = labels.loc[val_df.index]
-    train_df = labels.drop(val_df.index)
+    train_df, val_df = stratified_split(labels, args.val_frac)
     print(f"Train: {len(train_df)}  Val: {len(val_df)}")
     print(f"Val country distribution:\n{val_df['country'].value_counts(normalize=True)}")
 
@@ -107,10 +102,10 @@ def main(args):
     print('loaders:', len(train_loader), len(val_loader))
 
     for epoch in tqdm(range(1, args.epochs + 1), total=args.epochs):
-        tr_loss, tr_km = run_epoch(model, train_loader, optimizer,
-                                   device, aux_weight=args.aux_weight, train=True, **norm)
-        vl_loss, vl_km = run_epoch(model, val_loader, optimizer,
-                                   device, aux_weight=args.aux_weight, train=False, **norm)
+        tr_loss, tr_km = run_epoch(model, train_loader, optimizer, device,
+                                   aux_weight=args.aux_weight, train=True, **norm)
+        vl_loss, vl_km = run_epoch(model, val_loader, optimizer, device,
+                                   aux_weight=args.aux_weight, train=False, **norm)
 
         print(f"Epoch {epoch:3d}/{args.epochs}  "
               f"train {tr_loss:.2f} / {tr_km:.1f} km  "
