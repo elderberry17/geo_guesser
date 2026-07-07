@@ -1,5 +1,5 @@
 import torch.nn as nn
-from transformers import MobileViTModel
+from transformers import ConvNextV2Model
 
 from src.data import COUNTRIES
 
@@ -7,8 +7,8 @@ from src.data import COUNTRIES
 class GeoModel(nn.Module):
     def __init__(self):
         super().__init__()
-        self.backbone = MobileViTModel.from_pretrained("apple/mobilevit-x-small")
-        feat_dim = self.backbone.config.neck_hidden_sizes[-1]
+        self.backbone = ConvNextV2Model.from_pretrained("facebook/convnextv2-atto-1k-224")
+        feat_dim = self.backbone.config.hidden_sizes[-1]
         self.coord_head = nn.Linear(feat_dim, 2)
         self.country_head = nn.Linear(feat_dim, len(COUNTRIES))
 
