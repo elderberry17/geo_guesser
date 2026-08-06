@@ -9,7 +9,7 @@ from tqdm import tqdm
 
 from src.data import GeoDataset, HoldoutDataset
 from src.model import build_model
-from src.utils import run_epoch
+from src.utils import run_epoch, seed_worker, set_seed
 
 # unlearn to predict sees (def)
 # strarify in the split (def)
@@ -56,6 +56,8 @@ def predict_holdout(model, data_root, val_tf, lat_mean, lat_std, lng_mean, lng_s
 
 
 def main(args):
+    set_seed(args.seed)
+
     device = (
         torch.device("cuda") if torch.cuda.is_available()
         else torch.device("mps") if torch.backends.mps.is_available()
@@ -79,15 +81,19 @@ def main(args):
     train_tf, val_tf = get_transforms()
 
     pin = device.type == "cuda"
+    loader_gen = torch.Generator()
+    loader_gen.manual_seed(args.seed)
     train_loader = DataLoader(
         GeoDataset(train_df, data_root / "train", train_tf, **norm),
         batch_size=args.batch_size, shuffle=True,
         num_workers=args.workers, pin_memory=pin,
+        worker_init_fn=seed_worker, generator=loader_gen,
     )
     val_loader = DataLoader(
         GeoDataset(val_df, data_root / "train", val_tf, **norm),
         batch_size=args.batch_size, shuffle=False,
         num_workers=args.workers, pin_memory=pin,
+        worker_init_fn=seed_worker,
     )
 
     model = build_model().to(device)
@@ -145,6 +151,8 @@ def parse_args():
     p.add_argument("--workers",     type=int,   default=1)
     p.add_argument("--aux_weight",  type=float, default=0.3,
                    help="Weight for country classification auxiliary loss")
+    p.add_argument("--seed",        type=int,   default=42,
+                   help="Seed for python/numpy/torch RNGs and DataLoader shuffling")
     return p.parse_args()
 
 

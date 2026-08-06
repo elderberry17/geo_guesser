@@ -1,8 +1,28 @@
+import random
+
 import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
 from tqdm import tqdm
+
+
+def set_seed(seed):
+    """Seed python/numpy/torch RNGs and force deterministic CUDA kernels."""
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed_all(seed)
+    torch.backends.cudnn.deterministic = True
+    torch.backends.cudnn.benchmark = False
+    torch.use_deterministic_algorithms(True, warn_only=True)
+
+
+def seed_worker(worker_id):
+    """DataLoader worker_init_fn: reseed each worker's python/numpy RNGs deterministically."""
+    worker_seed = torch.initial_seed() % 2**32
+    np.random.seed(worker_seed)
+    random.seed(worker_seed)
 
 
 def haversine_km(lat1, lng1, lat2, lng2, R=6371.0088):
