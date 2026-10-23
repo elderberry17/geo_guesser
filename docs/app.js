@@ -63,6 +63,7 @@ function addTiles(map) {
       L.tileLayer(esri(`World_${shade}_Gray_Reference`), { maxZoom: 16 }),
     ]);
   };
+  map.attributionControl.setPrefix('<a href="https://leafletjs.com">Leaflet</a>');
   const entry = { map, layer: make().addTo(map), make };
   tileLayers.push(entry);
 }
@@ -100,6 +101,12 @@ function selectTab(name) {
   if (name === "explore" && explore.map) explore.map.invalidateSize();
   history.replaceState(null, "", "#" + name);
 }
+
+document.querySelectorAll("[data-goto]").forEach((a) => a.addEventListener("click", (e) => {
+  e.preventDefault();
+  selectTab(a.dataset.goto);
+  scrollTo({ top: 0 });
+}));
 
 /* ---------- PLAY ---------- */
 const play = { map: null, rounds: [], deck: [], i: 0, guess: null, layers: [], log: [], done: false };
@@ -441,6 +448,7 @@ function renderLeaderboard(rows) {
 
 /* ---------- boot ---------- */
 fetch("data/demo.json").then((r) => r.json()).then((data) => {
+  if (data.selection === "best") $("#play-note").hidden = false;
   initPlay(data.rounds);
   tabInit.explore = () => { if (!explore.summary) initExplore(data.summary); };
   tabInit.how = () => { if (!lbData) renderLeaderboard(data.leaderboard); };

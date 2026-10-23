@@ -22,6 +22,20 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parent.parent
 
 
+def upside_down_score(path: Path) -> float:
+    """How much brighter and bluer the bottom of the photo is than the top.
+
+    ~10% of the dataset is stored rotated 180 degrees (sky at the bottom, car
+    hood at the top). High scores flag those; a few upright photos with a bright
+    road and dark trees score high too, which is fine since we only skip them.
+    """
+    im = Image.open(path)
+    im.draft("RGB", (64, 64))
+    a = np.asarray(im.convert("RGB").resize((64, 64)), dtype=float)
+    lum, blue = a.mean(2), a[..., 2] - a[..., 0]
+    return (lum[-20:].mean() - lum[:20].mean()) + (blue[-20:].mean() - blue[:20].mean())
+
+
 def parse_leaderboard(path: Path):
     rows = []
     for line in path.read_text().splitlines():
@@ -40,8 +54,14 @@ def main():
     ap.add_argument("--data_root", type=Path, default=ROOT / "geo_dataset")
     ap.add_argument("--out", type=Path, default=ROOT / "docs")
     ap.add_argument("--per_country", type=int, default=50)
-    ap.add_argument("--size", type=int, default=448)
+    ap.add_argument("--size", type=int, default=512)
+    ap.add_argument("--quality", type=int, default=90)
+    ap.add_argument("--select", choices=["best", "random"], default="best",
+                    help="play-mode photos: each country's lowest-error predictions, or a random sample")
     ap.add_argument("--seed", type=int, default=42)
+    ap.add_argument("--flip_threshold", type=float, default=15.0,
+                    help="skip play-mode photos whose upside-down score exceeds this")
+    ap.add_argument("--exclude", type=Path, default=ROOT / "scripts/demo_exclude.txt")
     args = ap.parse_args()
 
     oof = pd.read_csv(args.oof)
@@ -71,23 +91,44 @@ def main():
                  for r in oof.itertuples()],
     }
 
-    # Stratified random sample for play mode (random, not cherry-picked).
-    sample = (oof.groupby("country").sample(n=args.per_country, random_state=args.seed)
-                 .sample(frac=1, random_state=args.seed))
+    # Play-mode photos, the same number per country. "best" shows off the model on
+    # its most accurate predictions; the explore view above still uses every point.
+    # Upright photos only: candidates are scored lazily, in selection order.
+    excluded = {l.strip() for l in args.exclude.read_text().splitlines()
+                if l.strip() and not l.startswith("#")} if args.exclude.exists() else set()
+    pool = (oof.sort_values("error_km") if args.select == "best"
+            else oof.sample(frac=1, random_state=args.seed))
+    chosen = []
+    for _, g in pool.groupby("country", sort=False):
+        kept = []
+        for r in g.itertuples():
+            if r.filename in excluded:
+                continue
+            if upside_down_score(args.data_root / "train" / r.filename) > args.flip_threshold:
+                continue
+            kept.append(r.Index)
+            if len(kept) == args.per_country:
+                break
+        chosen += kept
+    picked = oof.loc[chosen]
+    sample = picked.sample(frac=1, random_state=args.seed)
     img_dir = args.out / "img"
     img_dir.mkdir(parents=True, exist_ok=True)
+    for old in img_dir.glob("*.jpg"):
+        old.unlink()
     rounds = []
     for i, r in enumerate(sample.itertuples()):
         name = f"{i:04d}.jpg"
         im = Image.open(args.data_root / "train" / r.filename).convert("RGB")
-        im.resize((args.size, args.size), Image.LANCZOS).save(
-            img_dir / name, quality=78, optimize=True, progressive=True)
+        if im.size != (args.size, args.size):
+            im = im.resize((args.size, args.size), Image.LANCZOS)
+        im.save(img_dir / name, quality=args.quality, optimize=True, progressive=True)
         rounds.append({"img": name, "country": r.country,
                        "lat": round(r.lat, 5), "lng": round(r.lng, 5),
                        "pred_lat": round(r.pred_lat, 5), "pred_lng": round(r.pred_lng, 5),
                        "err": round(r.error_km, 1)})
 
-    data = {"summary": summary, "rounds": rounds,
+    data = {"summary": summary, "rounds": rounds, "selection": args.select,
             "leaderboard": parse_leaderboard(ROOT / "leaderboard.md")}
     (args.out / "data").mkdir(exist_ok=True)
     (args.out / "data" / "demo.json").write_text(json.dumps(data, separators=(",", ":")))
