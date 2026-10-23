@@ -1,0 +1,120 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Where in Europe?</title>
+<meta name="description" content="Play GeoGuessr against a 4.9M-parameter ConvNeXtV2 geolocation model, and explore its out-of-fold predictions on 11,758 street photos.">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="top">
+  <div class="wrap top-inner">
+    <div>
+      <h1>Where in Europe?</h1>
+      <p class="lede">A 4.9M-parameter model guesses where a street photo was taken, across 12 European countries. Try to beat it.</p>
+    </div>
+    <nav class="tabs" role="tablist">
+      <button role="tab" data-tab="play" aria-selected="true">Play</button>
+      <button role="tab" data-tab="explore" aria-selected="false">Explore</button>
+      <button role="tab" data-tab="how" aria-selected="false">How it works</button>
+    </nav>
+  </div>
+</header>
+
+<main class="wrap">
+  <!-- PLAY -->
+  <section id="tab-play" class="tab-panel" role="tabpanel">
+    <div class="play-bar">
+      <span id="round-label" class="muted">Round 1 / 5</span>
+      <span class="score-pair">
+        <span class="chip you"><i></i>You <b id="score-you">0</b></span>
+        <span class="chip model"><i></i>Model <b id="score-model">0</b></span>
+      </span>
+    </div>
+    <div class="play-grid">
+      <figure class="photo">
+        <img id="photo" alt="Street-level photo to geolocate">
+      </figure>
+      <div class="map-col">
+        <div id="play-map" class="map"></div>
+        <div class="play-actions">
+          <p id="play-hint" class="muted">Click the map to drop your guess.</p>
+          <button id="guess-btn" class="primary" disabled>Guess</button>
+        </div>
+      </div>
+    </div>
+    <div id="result" class="result" hidden></div>
+    <div id="final" class="final" hidden></div>
+  </section>
+
+  <!-- EXPLORE -->
+  <section id="tab-explore" class="tab-panel" role="tabpanel" hidden>
+    <div class="stats" id="stats"></div>
+    <div class="filters">
+      <label>Country
+        <select id="country-filter"><option value="">All 12 countries</option></select>
+      </label>
+      <div class="legend" id="band-legend"></div>
+    </div>
+    <div class="explore-grid">
+      <div class="card map-card">
+        <div id="explore-map" class="map tall"></div>
+        <p class="caption">Each dot is a photo at its true location, coloured by how far off the model was. Click a dot to see where the model guessed.</p>
+      </div>
+      <div class="side">
+        <div class="card">
+          <h3>Median error by country</h3>
+          <p class="caption">Click a bar to filter the map.</p>
+          <div id="country-chart"></div>
+        </div>
+        <div class="card">
+          <h3>Error distribution</h3>
+          <p class="caption">Log-scaled distance. Most photos land close; a long tail of wrong-country guesses drags the mean far above the median.</p>
+          <div id="hist"></div>
+        </div>
+      </div>
+    </div>
+    <details class="card table-view">
+      <summary>Per-country table</summary>
+      <table id="country-table"></table>
+    </details>
+  </section>
+
+  <!-- HOW -->
+  <section id="tab-how" class="tab-panel prose" role="tabpanel" hidden>
+    <h2>Classify a region, then nudge</h2>
+    <p>Directly regressing latitude and longitude averages uncertain guesses into the middle of Europe. Instead, the model treats it as a classification problem first:</p>
+    <div class="arch" aria-label="Model architecture">
+      <div class="box">512×512 photo</div><span class="arrow">→</span>
+      <div class="box strong">ConvNeXtV2-femto<small>ImageNet-pretrained backbone</small></div><span class="arrow">→</span>
+      <div class="heads">
+        <div class="box">Which of <b>160 cells</b>?<small>KMeans regions, cross-entropy</small></div>
+        <div class="box">Offset in <b>km</b> (north, east)<small>from the cell's medoid, smooth-L1</small></div>
+        <div class="box dim">Which of 12 countries?<small>auxiliary head, weight 0.3</small></div>
+      </div>
+    </div>
+    <ul>
+      <li><b>Cells.</b> Training coordinates are clustered into 160 regions with KMeans. Each region's reference point is snapped to a real training photo, so it never sits in the sea.</li>
+      <li><b>Offsets in kilometres, not degrees.</b> A degree of longitude is ~86 km in Turkey but ~47 km in Iceland, so offsets are projected to local east/north km first.</li>
+      <li><b>Budget.</b> 4,915,230 of the allowed 5,000,000 parameters. Trained only on the 11,758 provided images, 30 epochs, AdamW at lr 5e-5.</li>
+    </ul>
+    <p><b>Honest numbers.</b> Everything on this site comes from 5-fold cross-validation: every photo was predicted by a model that never saw it during training. That gives a 118.7 km median error. A single lucky validation split gave 103.5 km.</p>
+
+    <h2>Fifty experiments to get here</h2>
+    <p>Each dot is one training run, ranked by median validation error. Changing the target from coordinates to cells mattered more than any backbone or learning-rate tweak.</p>
+    <div class="card"><div id="lb-legend" class="legend"></div><div id="lb-chart"></div>
+      <p class="caption">Hover a dot for its config. Full table with every setting: <a href="https://github.com/elderberry17/geo_guesser/blob/main/leaderboard.md">leaderboard.md</a>.</p></div>
+  </section>
+</main>
+
+<footer class="wrap foot muted">
+  Basemap tiles © Esri and contributors, map data © OpenStreetMap contributors. Model and code: <a href="https://github.com/elderberry17/geo_guesser">elderberry17/geo_guesser</a>.
+</footer>
+
+<div id="tooltip" class="tooltip" role="tooltip" hidden></div>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="app.js"></script>
+</body>
+</html>
